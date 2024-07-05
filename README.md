@@ -22,10 +22,16 @@ The default parameters are described in the manuscript and correspond to the def
 - Fig 2 (center): 30, 3000
 - Fig 2 (bottom): 46, 4000
 - Fig 3: 4, 1025
-- Fig 4 (1st row): 1501, 151
-- Fig 4 (2nd row): 1517, 150
-- Fig 4 (3rd row): 1525, 150
-- Fig 4 (4th row): 1531, 152
-- Fig 4 (5th row): 1553, 150
+- Fig 4I: 1101, 110
+- Fig 4J: 100, 250
+- Fig 5 (1st row): 1501, 151
+- Fig 5 (2nd row): 1517, 150
+- Fig 5 (3rd row): 1525, 150
+- Fig 5 (4th row): 1531, 152
+- Fig 5 (5th row): 1553, 150
+- Fig 6A: [1602, 1702] (two superimposed layouts), 167
+- Fig 6B: [1611, 1710], 166
+- Fig 6C: [1620, 1720], 162
+- Fig 6D: [1633, 1730] (subunits and photoreceptors), 160
 
-Sample seeds were chosen to generate representative layouts and F-scores. The 1000 seeds for the calculation of average F-scores covered the range [0, 1000) for the layout and [10000, 11000) for the poisson process.
+Sample seeds were chosen to generate representative layouts and F-scores. The 1000 seeds for the calculation of average F-scores covered the range [0, 1000) for the layout (and [1000, 2000) for the second layout or photoreceptors) and [10000, 11000) for the poisson process.
