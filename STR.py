@@ -26,10 +26,10 @@ POISSON_SEED = None                     # Model random seed used for generating 
 RESOLUTION = 40                         # Width and height of the simulated area in pixels.
 NUM_POSITIONS = 60                      # Number of stripe positions.
 NUM_ANGLES = 36                         # Number of stripe angles.
-HALF_W = (RESOLUTION/40) * 2.5          # Half width of the Ricker stripe profile. The prefactor makes it independent of the resolution.
+HALF_W = 2.5                            # Half width of the Ricker stripe profile.
 SURROUND_FACTOR = 2.5                   # Factor that strengthens the suppressive surround of the stimulus.
-SMOOTHING = (NUM_POSITIONS/60 * 1.5,    # Gaussian sigma for smoothing the sinograms. First value is in position-,
-             NUM_ANGLES/36 * 1.0)       # second in angle-direction. In units of sinogram-pixels.
+SMOOTHING = (0.025,                     # Gaussian sigma for smoothing the sinograms. First value is in position-direction and relative to simulation area size,
+             5.0)                       # second is in angle-direction and in units of degrees.
 
 
 ###############################################################################
@@ -125,7 +125,7 @@ def Plot_reconstruction(reconstruction, savepath=None, coordinates=None,
     coordinates : ndarray, optional
         If provided, the coordinates contained in this 2D array are marked in
         the plot.
-    f_score : float, optional
+    f_score : float or list of float, optional
         If provided, the F-score will be written in the plot.
     """
 
@@ -134,10 +134,22 @@ def Plot_reconstruction(reconstruction, savepath=None, coordinates=None,
     ax.imshow(np.transpose(reconstruction), origin='lower', cmap='RdBu_r',
               vmin=-np.max(np.abs(reconstruction)),
               vmax=np.max(np.abs(reconstruction)))
-    if coordinates is not None:
+    if coordinates is not None and coordinates.size > 0:
         ax.scatter(coordinates[:, 0], coordinates[:, 1], c='yellow',
                    marker='x')
-    if f_score is not None:
+    if f_score is None:
+        pass
+    elif type(f_score) == list:
+        if len(f_score) == 3:
+            fig.text(0.05, 0.01,
+                     f"F-scores of hotspots: {f_score[0]:.2f} (both), "
+                     + f"{f_score[1]:.2f} (1st layout), "
+                     + f"{f_score[2]:.2f} (2nd layout)", size=6)
+        elif len(f_score) == 2:
+            fig.text(0.05, 0.01,
+                     f"F-scores of hotspots: {f_score[0]:.2f} (subunits), "
+                     + f"{f_score[1]:.2f} (photoreceptors), ", size=6)
+    else:
         fig.text(0.05, 0.01, f"F-score of hotspots: {f_score:.2f}", size=6)
     if savepath is None:
         plt.show()
@@ -275,8 +287,8 @@ def Reconstruction(sinogram, sigma, return_smoothed=False):
         stripe, second denotes angle of the stripe.
     sigma : tuple
         Contains the standard deviations of the Gaussian smoothing of the
-        sinogram in position-direction and in angle-direction in units of
-        elements.
+        sinogram in position-direction relative to the simulation area size and
+        in angle-direction in units degrees.
     return_smoothed : bool, optional
         If True, returns the smoothed sinogram.
 
@@ -289,7 +301,11 @@ def Reconstruction(sinogram, sigma, return_smoothed=False):
         return_smoothed is True.
     """
 
-    smoothed = gaussian_filter(sinogram, sigma=sigma)
+    # Convert the smoothing parameter units into units of sinogram elements
+    sigma_pos = sigma[0] * (sinogram.shape[0]-1)
+    sigma_ang = sigma[1] / 180 * sinogram.shape[1]
+    # Apply smoothing
+    smoothed = gaussian_filter(sinogram, sigma=(sigma_pos, sigma_ang))
     # Transposing the FBP due to different angle conventions
     fbp = np.transpose(iradon(smoothed))
 
@@ -318,7 +334,7 @@ def Find_hotspots(fbp):
     global_max = np.max(fbp)
     coordinates = peak_local_max(fbp, min_distance=1)
     coordinates = [coord for coord in coordinates
-                     if fbp[coord[0], coord[1]] >= 0.3*global_max]
+                   if fbp[coord[0], coord[1]] >= 0.3*global_max]
     coordinates = np.array(coordinates)
     if coordinates.size > 0:
         distances = np.sqrt(np.sum(np.square(coordinates - (fbp.shape[0]-1)/2),
@@ -328,7 +344,8 @@ def Find_hotspots(fbp):
     return coordinates
 
 
-def F_score(rgc, locations, num_positions):
+def F_score(rgc, locations, num_positions, extended_statistics=False,
+            subunits_of_interest='all', use_photoreceptors=False):
     """ Calculates the F-score for the detected subunit locations.
 
     Detected subunits are determined by checking if a detected location falls
@@ -345,13 +362,43 @@ def F_score(rgc, locations, num_positions):
     num_positions : int
         Number of stripe positions that were measured. This is equal to the
         edge size of the reconstruction.
+    extended_statistics : bool, optional
+        If True, details about the kind of mistakes will also be computed and
+        returned. Default is False.
+    subunits_of_interest : str or ndarray, optional
+        References the subunits that *locations* aims to detect and that should
+        be considered in the F-score calculation. If not 'all' (default), must
+        be a 1D boolean array with the same length as the number of subunits of
+        *rgc*.
+    use_photoreceptors : bool, optional
+        If True, F-score is calculated for the photoreceptors instead of the
+        subunits. This assumes, that *rgc* is modelling photoreceptors.
 
     Returns
     -------
-    float
+    f_score : float
         F-score of *locations* as detections of subunits in *rgc*.
-
+    misaligned : int, optional
+        Number of subunits that were detected by a location in the 1.5 sigma,
+        but not 0.75 sigma ellipse. Only returned if extended_statistics is
+        True.
+    solo_subunits : int, optional
+        Number of subunits that had no free location in the 1.5 sigma ellipse.
+        Only returned if extended_statistics is True.
+    solo_locations : int, optional
+        Number of locations that were in no free subunit's 1.5 sigma ellipse.
+        Only returned if extended_statistics is True.
     """
+
+    # Preprocesssing
+    if use_photoreceptors:
+        subunit_params = rgc.photoreceptor_params
+        num_subunits = rgc.num_photoreceptors
+    else:
+        subunit_params = rgc.subunit_params
+        num_subunits = rgc.subunits.shape[0]
+    if type(subunits_of_interest) == str and subunits_of_interest == 'all':
+        subunits_of_interest = np.ones(num_subunits, dtype=bool)
 
     # First create subunit arrays with the parameters of the rgc's subunits,
     # but with the array size of the reconstruction, i.e. scaled versions of
@@ -363,30 +410,74 @@ def F_score(rgc, locations, num_positions):
                                              params[2]*scaling,
                                              params[3]*scaling,
                                              params[4])
-                for params in rgc.subunit_params]
+                for params in subunit_params[subunits_of_interest]]
     subunits = np.array(subunits)
     # Calculate the amplitude of the subunit gaussians.
-    amplitudes = 1/(2*np.pi*rgc.subunit_params[:, 2]*rgc.subunit_params[:, 3]
-                    *scaling**2)
-    # Calculate what the values of Gaussian with those amplitudes at 0.75 sigma
-    # are.
-    thresholds = np.exp((-0.75**2)/2) * amplitudes
-    # Convert the subunit arrays into arrays that are true at all locations
-    # within 0.75 sigma.
-    within = np.transpose(np.transpose(subunits) >= thresholds)
-    # Make sure that the 0.75 sigma ellipses don't overlap
-    if np.max(np.sum(within, axis=0) > 1):
-        raise Exception("Subunits overlap too strongly to calculate F-score.")
-    # Use the locations as indices to find out which subunits each location has
-    # hit
-    detections_idxb = [within[:, loc[0], loc[1]] for loc in locations]
-    # Count which subunits have been detected while avoiding redundant
-    # detections
-    true_positives = np.sum(np.any(np.array(detections_idxb), axis=0))
-    # Calculate the F-score
-    f_score = 2*true_positives/(locations.shape[0] + rgc.num_subunits)
+    amplitudes = 1/(2*np.pi*subunit_params[subunits_of_interest, 2]
+                    *subunit_params[subunits_of_interest, 3]*scaling**2)
 
-    return f_score
+    # If the 0.75 sigma ellipses don't overlap (which is usually the case) and
+    # extended statistics are not required, a quicker approach can be used.
+    if not extended_statistics:
+        # Calculate what the values of Gaussians with the given amplitudes at
+        # 0.75 sigma.
+        thresholds = np.exp((-0.75**2)/2) * amplitudes
+        # Convert the subunit arrays into arrays that are true at all locations
+        # within 0.75 sigma.
+        within = np.transpose(np.transpose(subunits) >= thresholds)
+    # Make sure that the 0.75 sigma ellipses really don't overlap
+    if not extended_statistics and not np.max(np.sum(within, axis=0) > 1):
+        # Use the locations as indices to find out which subunits each location
+        # has hit
+        detections_idxb = [within[:, loc[0], loc[1]] for loc in locations]
+        # Count which subunits have been detected while avoiding redundant
+        # detections
+        true_positives = np.sum(np.any(np.array(detections_idxb), axis=0))
+    # In case more information about the kind of mistakes is required or the
+    # 0.75 sigma ellipses did overlap, a more detailed calculation needs to be
+    # done
+    else:
+        # Scale the subunits to an amplitude of one
+        subunits = subunits / np.transpose([[amplitudes]])
+        # Identify the weight of each subunit at every identified location
+        sub_loc = subunits[:,
+                           locations[:, 0] if locations.size > 0 else [],
+                           locations[:, 1] if locations.size > 0 else []]
+        # Later computations are simplified by adding a row and column of zeros
+        # here
+        sub_loc = np.vstack([np.column_stack([sub_loc,
+                                              np.zeros(sub_loc.shape[0])]),
+                             np.zeros(sub_loc.shape[1]+1)])
+        # Iteratively remove the subunit-location combination that is closest
+        # together until no combination closer than 0.75 sigma is left
+        threshold = np.exp((-0.75**2)/2)
+        true_positives = 0
+        while np.any(sub_loc > threshold):
+            max_id = np.unravel_index(np.argmax(sub_loc), sub_loc.shape)
+            sub_loc = np.delete(np.delete(sub_loc, max_id[0], axis=0),
+                                max_id[1], axis=1)
+            true_positives += 1
+        if extended_statistics:
+            # Then remove combinations closer than 1.5 sigma and count them as
+            # misaligned
+            threshold = np.exp((-1.5**2)/2)
+            misaligned = 0
+            while np.any(sub_loc > threshold):
+                max_id = np.unravel_index(np.argmax(sub_loc), sub_loc.shape)
+                sub_loc = np.delete(np.delete(sub_loc, max_id[0], axis=0),
+                                    max_id[1], axis=1)
+                misaligned += 1
+            # Evaluate how many subunits and locations are left
+            solo_subunits, solo_locations = np.array(sub_loc.shape) - 1
+
+    # Calculate the F-score
+    f_score = 2*true_positives/(locations.shape[0] + np.sum(subunits_of_interest))
+
+    # Return results
+    if extended_statistics:
+        return f_score, misaligned, solo_subunits, solo_locations
+    else:
+        return f_score
 
 
 def STR_analysis(rgc, num_positions, num_angles, half_w, surround_factor,
@@ -408,8 +499,8 @@ def STR_analysis(rgc, num_positions, num_angles, half_w, surround_factor,
         Multiplicative factor applied to the sidebands of the Ricker stripe.
     smoothing : tuple
         Contains the standard deviations of the Gaussian smoothing of the
-        sinogram in position-direction and in angle-direction in units of
-        elements.
+        sinogram in position-direction relative to the simulation area size and
+        in angle-direction in units degrees.
     known_sinogram : ndarray, optional
         If the sinogram of the cell is already known and measuring it again
         should be avoided (e.g. for performance reasons), the sinogram can be
@@ -428,9 +519,12 @@ def STR_analysis(rgc, num_positions, num_angles, half_w, surround_factor,
         2D array containing the FBP.
     hotspots : ndarray
         Coordinates of the hotspots in the FBP.
-    f_score : float
+    f_score : float or list of float
         F-score of how well the detected hotspots correspond to the subunits of
-        the model.
+        the model. If the model consists of two superimposed layouts, this is a
+        list containing the F-score for all subunits, the first layout, and the
+        second layout. If the model uses photoreceptors, the list contains the
+        F-score for the subunits and the F-score for the photoreceptors.
     """
 
     if known_sinogram is None:
@@ -440,7 +534,20 @@ def STR_analysis(rgc, num_positions, num_angles, half_w, surround_factor,
         sinogram = known_sinogram
     fbp, smoothed = Reconstruction(sinogram, smoothing, return_smoothed=True)
     hotspots = Find_hotspots(fbp)
-    f_score = F_score(rgc, hotspots, num_positions)
+    if rgc.scenario == 'photoreceptors':
+        f_score = [F_score(rgc, hotspots, num_positions),
+                   F_score(rgc, hotspots, num_positions,
+                           use_photoreceptors=True)]
+    elif type(rgc.num_subunits) == int:
+        f_score = F_score(rgc, hotspots, num_positions)
+    else:
+        f_score = [F_score(rgc, hotspots, num_positions),
+                   F_score(rgc, hotspots, num_positions,
+                           subunits_of_interest=np.repeat([True, False],
+                                                          rgc.num_subunits)),
+                   F_score(rgc, hotspots, num_positions,
+                           subunits_of_interest=np.repeat([False, True],
+                                                          rgc.num_subunits))]
 
     return sinogram, smoothed, fbp, hotspots, f_score
 
