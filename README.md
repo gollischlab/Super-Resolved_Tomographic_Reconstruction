@@ -16,9 +16,9 @@ The main STR analysis is implemented here. The main program instantiates a *Subu
 This script can be used to calculate average F-scores evaluating the reconstruction quality using certain model and analysis parameters. The results of each parameter combination are saved in a separate file in a subfolder, containing the parameter values in the file name.
 
 ### Examples shown in figures
-The default parameters are described in the manuscript and correspond to the default parameters in the scripts. Parameter changes, e.g. a different subunit nonlinearity, are mentioned in the text and can be implemented by changing the corresponding parameters in the script. In combination with the following seeds of the random number generators, this information can be used to replicate the results shown in the manuscript's figures. Each instantiation of a *Subunit_Model* has two seeds - one for generating the subunit layout and one for the poisson spiking process.
+The default parameters are described in the manuscript and correspond to the default parameters in the scripts. Parameter changes, e.g., a different subunit nonlinearity, are mentioned in the text and can be implemented by changing the corresponding parameters in the script. In combination with the following seeds of the random number generators, this information can be used to replicate the results shown in the manuscript's figures. Each instantiation of a *Subunit_Model* has two seeds - one for generating the subunit layout and one for the Poisson spiking process.
 
-- Fig 2 (top): 20 (layout seed), 2000 (poisson seed)
+- Fig 2 (top): 20 (layout seed), 2000 (Poisson seed)
 - Fig 2 (center): 30, 3000
 - Fig 2 (bottom): 46, 4000
 - Fig 3: 4, 1025
@@ -34,4 +34,4 @@ The default parameters are described in the manuscript and correspond to the def
 - Fig 6C: [1620, 1720], 162
 - Fig 6D: [1633, 1730] (subunits and photoreceptors), 160
 
-Sample seeds were chosen to generate representative layouts and F-scores. The 1000 seeds for the calculation of average F-scores covered the range [0, 1000) for the layout (and [1000, 2000) for the second layout or photoreceptors) and [10000, 11000) for the poisson process.
+Sample seeds were chosen to generate representative layouts and F-scores. The 1000 seeds for the calculation of average F-scores covered the range [0, 1000) for the layout (and [1000, 2000) for the second layout or photoreceptors) and [10000, 11000) for the Poisson process.
